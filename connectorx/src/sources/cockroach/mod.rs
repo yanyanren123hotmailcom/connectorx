@@ -6,7 +6,7 @@ mod typesystem;
 
 pub use self::errors::CockroachSourceError;
 pub use connection::rewrite_tls_args;
-pub use typesystem::{CockroachDBTypePairs, CockroachTypeSystem};
+pub use typesystem::{CockroachTypePairs, CockroachTypeSystem};
 use num_cpus;
 use sysinfo;
 use regex::Regex;
@@ -228,7 +228,7 @@ where
             .schema
             .iter()
             .zip(pg_types.iter())
-            .map(|(t1, t2)| CockroachDBTypePairs(t2, t1).into())
+            .map(|(t1, t2)| CockroachTypePairs(t2, t1).into())
             .collect();
 
         // 获取可用的处理器核心数
