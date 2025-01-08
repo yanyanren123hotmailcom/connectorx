@@ -15,6 +15,7 @@ pub enum SourceType {
     BigQuery,
     DuckDB,
     Trino,
+    Cockroach,
     Unknown,
 }
 

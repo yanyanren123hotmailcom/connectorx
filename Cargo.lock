@@ -926,6 +926,7 @@ dependencies = [
  "native-tls",
  "ndarray",
  "num-traits",
+ "num_cpus",
  "openssl",
  "oracle",
  "owning_ref",
@@ -948,6 +949,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlparser 0.37.0",
+ "sysinfo 0.23.13",
  "thiserror",
  "tiberius",
  "tokio",
@@ -2878,6 +2880,15 @@ dependencies = [
 
 [[package]]
 name = "ntapi"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c28774a7fd2fbb4f0babd8237ce554b73af68021b5f695a3cebd6c59bac0980f"
+dependencies = [
+ "winapi",
+]
+
+[[package]]
+name = "ntapi"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8a3895c6391c39d7fe7ebc444a87eb2991b2a0bc718fdabd071eec617fc68e4"
@@ -3622,7 +3633,7 @@ dependencies = [
  "polars-error",
  "rayon",
  "smartstring",
- "sysinfo",
+ "sysinfo 0.29.11",
  "version_check",
 ]
 
@@ -4807,6 +4818,21 @@ dependencies = [
 
 [[package]]
 name = "sysinfo"
+version = "0.23.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3977ec2e0520829be45c8a2df70db2bf364714d8a748316a10c3c35d4d2b01c9"
+dependencies = [
+ "cfg-if",
+ "core-foundation-sys",
+ "libc",
+ "ntapi 0.3.7",
+ "once_cell",
+ "rayon",
+ "winapi",
+]
+
+[[package]]
+name = "sysinfo"
 version = "0.29.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd727fc423c2060f6c92d9534cef765c65a6ed3f428a03d7def74a8c4348e666"
@@ -4814,7 +4840,7 @@ dependencies = [
  "cfg-if",
  "core-foundation-sys",
  "libc",
- "ntapi",
+ "ntapi 0.4.1",
  "once_cell",
  "winapi",
 ]

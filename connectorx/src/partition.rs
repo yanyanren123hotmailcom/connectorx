@@ -50,7 +50,11 @@ pub struct PartitionQuery {
     max: Option<i64>,
     num: usize,
 }
-
+//PartitionQuery 结构体用于表示一个分区查询，包含以下字段：
+// query: 原始查询字符串.
+// column: 需要分区的列名.
+// min 和 max: 分区的最小值和最大值，使用 Option<i64> 类型表示，可以是 Some 或 None.
+// num: 分区的数量.
 impl PartitionQuery {
     pub fn new(query: &str, column: &str, min: Option<i64>, max: Option<i64>, num: usize) -> Self {
         Self {
@@ -62,7 +66,12 @@ impl PartitionQuery {
         }
     }
 }
-
+//partition 函数接受一个 PartitionQuery 实例和一个数据库连接 source_conn，返回一个结果，包含多个分区查询.
+// 首先，根据 PartitionQuery 中的 min 和 max 字段确定分区的范围：
+// 如果 min 和 max 都是 None，则调用 get_col_range 函数从数据库中获取列的范围.
+// 如果 min 和 max 都是 Some，则直接使用这些值.
+// 如果 min 和 max 只有一个被指定，则抛出错误.
+// 计算每个分区的大小，然后根据分区大小生成每个分区的查询，并将这些查询添加到 queries 向量中.
 pub fn partition(part: &PartitionQuery, source_conn: &SourceConn) -> OutResult<Vec<CXQuery>> {
     let mut queries = vec![];
     let num = part.num as i64;
@@ -87,7 +96,9 @@ pub fn partition(part: &PartitionQuery, source_conn: &SourceConn) -> OutResult<V
     }
     Ok(queries)
 }
-
+//获取列范围的函数 get_col_range
+// get_col_range 函数根据数据库类型调用相应的函数来获取列的范围. 它支持多种数据库类型，如 PostgreSQL、SQLite、MySQL、SQL Server、Oracle、BigQuery 和 Trino.
+// 对于每种数据库类型，都有一个专门的函数（例如 pg_get_partition_range）来处理具体的数据库连接和查询逻辑.
 pub fn get_col_range(source_conn: &SourceConn, query: &str, col: &str) -> OutResult<(i64, i64)> {
     match source_conn.ty {
         #[cfg(feature = "src_postgres")]
@@ -107,7 +118,9 @@ pub fn get_col_range(source_conn: &SourceConn, query: &str, col: &str) -> OutRes
         _ => unimplemented!("{:?} not implemented!", source_conn.ty),
     }
 }
-
+//获取分区查询的函数 get_part_query
+// get_part_query 函数用于生成一个特定分区的查询. 它根据数据库类型调用相应的函数来生成查询字符串.
+// 这些函数（例如 single_col_partition_query）会根据数据库方言（如 PostgreSQL 方言）生成合适的 SQL 查询字符串.
 #[throws(ConnectorXOutError)]
 pub fn get_part_query(
     source_conn: &SourceConn,
@@ -150,6 +163,10 @@ pub fn get_part_query(
     CXQuery::Wrapped(query)
 }
 
+//PostgreSQL 的范围获取函数 pg_get_partition_range
+// pg_get_partition_range 函数用于从 PostgreSQL 数据库中获取指定列的范围.
+// 它首先建立数据库连接，然后执行一个查询来获取列的最小值和最大值.
+// 根据列的数据类型（如整数、浮点数等），将结果转换为 i64 类型并返回.
 #[cfg(feature = "src_postgres")]
 #[throws(ConnectorXOutError)]
 fn pg_get_partition_range(conn: &Url, query: &str, col: &str) -> (i64, i64) {

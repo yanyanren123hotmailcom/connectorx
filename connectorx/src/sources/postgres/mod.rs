@@ -3,11 +3,12 @@
 mod connection;
 mod errors;
 mod typesystem;
-
+use sqlparser::parser::Parser;
+use sqlparser::ast::{Statement, TableFactor};
 pub use self::errors::PostgresSourceError;
 pub use connection::rewrite_tls_args;
 pub use typesystem::{PostgresTypePairs, PostgresTypeSystem};
-
+use std::thread;
 use crate::constants::DB_BUFFER_SIZE;
 use crate::{
     data_order::DataOrder,
@@ -78,7 +79,12 @@ where
         )),
     }
 }
-
+//结构体定义：
+//
+// PostgresSource 结构体包含一个连接池 pool，一个可选的原始查询 origin_query，一个查询向量 queries，列名向量 names，数据模式向量 schema 和 PostgreSQL 类型系统向量 pg_schema。
+// 泛型约束：
+//
+// P 和 C 是泛型参数，C 必须实现 MakeTlsConnect trait，并且 C::TlsConnect 和 C::Stream 必须满足 Send trait，以允许跨线程发送。
 pub struct PostgresSource<P, C>
 where
     C: MakeTlsConnect<Socket> + Clone + 'static + Sync + Send,
@@ -93,6 +99,7 @@ where
     schema: Vec<PostgresTypeSystem>,
     pg_schema: Vec<postgres::types::Type>,
     _protocol: PhantomData<P>,
+    available_threads: usize,
 }
 
 impl<P, C> PostgresSource<P, C>
@@ -102,6 +109,7 @@ where
     C::Stream: Send,
     <C::TlsConnect as TlsConnect<Socket>>::Future: Send,
 {
+    //这是一个构造函数，用于创建 PostgresSource 实例。它接受配置和 TLS 配置，创建一个 PostgreSQL 连接管理器，并构建一个连接池。
     #[throws(PostgresSourceError)]
     pub fn new(config: Config, tls: C, nconn: usize) -> Self {
         let manager = PostgresConnectionManager::new(config, tls);
@@ -115,10 +123,19 @@ where
             schema: vec![],
             pg_schema: vec![],
             _protocol: PhantomData,
+            available_threads:0,
         }
     }
 }
-
+//PostgresSource 实现了 Source trait，提供了以下方法：
+// set_data_order：设置数据顺序，目前只支持行主序（RowMajor）。
+// set_queries：设置查询，将查询转换为字符串并存储。
+// set_origin_query：设置原始查询。
+// fetch_metadata：获取元数据，包括列名和 PostgreSQL 类型。
+// result_rows：获取结果行数，如果设置了原始查询，则执行查询并返回行数。
+// names：返回列名。
+// schema：返回数据模式。
+// partition：将数据源分区，为每个查询创建一个 PostgresSourcePartition 实例。
 impl<P, C> Source for PostgresSource<P, C>
 where
     PostgresSourcePartition<P, C>:
@@ -172,6 +189,53 @@ where
             .zip(pg_types.iter())
             .map(|(t1, t2)| PostgresTypePairs(t2, t1).into())
             .collect();
+        // 获取可用的处理器核心数
+        let available_parallelism = thread::available_parallelism().unwrap();
+        self.available_threads = available_parallelism.get();
+
+        //获取索引信息
+        let dialect = PostgreSqlDialect {};
+        //提取表名
+        let mut table_name=vec![];
+        match Parser::parse_sql(&dialect,first_query.as_str() ) {
+            Ok(statements) => {
+                for statement in statements {
+                    match statement {
+                        Statement::Query(query) => {
+                            if let Some(from) = &query.body {
+                                if let sqlparser::ast::SetExpr::Select(select) = from {
+                                    if let Some(table_with_joins) = &select.from {
+                                        for table_with_join in table_with_joins {
+                                            if let TableFactor::Table { name, .. } = &table_with_join.relation {
+                                                table_name.push(name.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Parse error: {}", e);
+            }
+        }
+
+        //获取表的索引列信息
+        // 使用 SHOW INDEX 语句获取索引信息
+        let index_info_query = format!("SHOW INDEX FROM {}", table_name[0]);
+        let index_rows = conn.query(&index_info_query, &[])?;
+
+        // 遍历结果并打印索引列信息
+        for row in index_rows {
+            let index_name: &str = row.get("index_name");
+            let column_name: &str = row.get("column_name");
+            let direction: &str = row.get("direction");
+            println!("Index: {}, Column: {}, Direction: {}", index_name, column_name, direction);
+        }
+
     }
 
     #[throws(PostgresSourceError)]
@@ -306,7 +370,25 @@ where
     #[throws(PostgresSourceError)]
     fn parser(&mut self) -> Self::Parser<'_> {
         let query = format!("COPY ({}) TO STDOUT WITH CSV", self.query);
+        //执行查询并获取数据流：
+        //
+        // let reader = self.conn.copy_out(&*query)?;：
+        // self.conn 是数据库连接对象，可能是 PostgreSQL、MySQL、SQLite 等数据库的连接实例.
+        // copy_out 方法用于执行 SQL 查询并获取数据流。对于 PostgreSQL，copy_out 通常用于执行 COPY 命令，该命令将查询结果直接发送到客户端，而不是存储在服务器上.
+        // &*query 是查询字符串的引用，query 可能是一个字符串或字符串切片，表示要执行的 SQL 查询.
+        // ? 表示如果 copy_out 方法返回错误，则将错误传播出去，这通常用于错误处理，使得函数能够返回一个 Result 类型.
         let reader = self.conn.copy_out(&*query)?; // unless reading the data, it seems like issue the query is fast
+        //创建 CSV 读取器：
+        //
+        // let iter = ReaderBuilder::new()：
+        // ReaderBuilder::new() 创建一个新的 CSV 读取器构建器，用于配置 CSV 读取器.
+        // .has_headers(false)：
+        // 指定 CSV 文件没有头部信息（即列名），因为从数据库查询的结果通常不包含列名.
+        // .from_reader(reader)：
+        // 使用从数据库查询获取的数据流 reader 作为 CSV 读取器的输入源.
+        // .into_records()：
+        // 将构建器转换为一个迭代器，该迭代器可以逐行读取 CSV 数据并将其解析为记录（Record）.
+        // 这个迭代器可以用于遍历查询结果的每一行数据，并进行进一步的处理或分析.
         let iter = ReaderBuilder::new()
             .has_headers(false)
             .from_reader(reader)

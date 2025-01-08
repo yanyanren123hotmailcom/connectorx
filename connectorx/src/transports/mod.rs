@@ -38,6 +38,12 @@ mod postgres_arrow;
 mod postgres_arrow2;
 #[cfg(all(feature = "src_postgres", feature = "dst_arrow"))]
 mod postgres_arrowstream;
+#[cfg(all(feature = "src_cockroach", feature = "dst_arrow"))]
+mod cockroach_arrow;
+#[cfg(all(feature = "src_cockroach", feature = "dst_arrow2"))]
+mod cockroach_arrow2;
+#[cfg(all(feature = "src_cockroach", feature = "dst_arrow"))]
+mod cockroach_arrowstream;
 #[cfg(all(feature = "src_sqlite", feature = "dst_arrow"))]
 mod sqlite_arrow;
 #[cfg(all(feature = "src_sqlite", feature = "dst_arrow2"))]
@@ -50,6 +56,8 @@ mod trino_arrow;
 mod trino_arrow2;
 #[cfg(all(feature = "src_trino", feature = "dst_arrow"))]
 mod trino_arrowstream;
+
+
 #[cfg(all(feature = "src_bigquery", feature = "dst_arrow"))]
 pub use bigquery_arrow::{BigQueryArrowTransport, BigQueryArrowTransportError};
 #[cfg(all(feature = "src_bigquery", feature = "dst_arrow2"))]
@@ -100,6 +108,15 @@ pub use postgres_arrow2::{PostgresArrow2Transport, PostgresArrow2TransportError}
 pub use postgres_arrowstream::{
     PostgresArrowTransport as PostgresArrowStreamTransport,
     PostgresArrowTransportError as PostgresArrowStreamTransportError,
+};
+#[cfg(all(feature = "src_cockroach", feature = "dst_arrow"))]
+pub use cockroach_arrow::{CockroachArrowTransport, CockroachArrowTransportError};
+#[cfg(all(feature = "src_cockroach", feature = "dst_arrow2"))]
+pub use cockroach_arrow2::{CockroachArrow2Transport, CockroachArrow2TransportError};
+#[cfg(all(feature = "src_cockroach", feature = "dst_arrow"))]
+pub use cockroach_arrowstream::{
+    CockroachArrowTransport as CockroachArrowStreamTransport,
+    CockroachArrowTransportError as CockroachArrowStreamTransportError,
 };
 #[cfg(all(feature = "src_sqlite", feature = "dst_arrow"))]
 pub use sqlite_arrow::{SQLiteArrowTransport, SQLiteArrowTransportError};

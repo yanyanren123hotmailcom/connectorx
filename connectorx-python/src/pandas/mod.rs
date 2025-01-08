@@ -38,15 +38,15 @@ use std::sync::Arc;
 pub fn write_pandas<'a, 'py: 'a>(
     py: Python<'py>,
     source_conn: &SourceConn,
-    origin_query: Option<String>,
-    queries: &[CXQuery<String>],
+    origin_query: Option<String>,//原始查询
+    queries: &[CXQuery<String>],//分区后查询
 ) -> Bound<'py, PyAny> {
     let destination = PandasDestination::new();
     let protocol = source_conn.proto.as_str();
     debug!("Protocol: {}", protocol);
 
     match source_conn.ty {
-        SourceType::Postgres => {
+        SourceType::Postgres |SourceType::cockroach => {
             let (config, tls) = rewrite_tls_args(&source_conn.conn)?;
             match (protocol, tls) {
                 ("csv", Some(tls_conn)) => {

@@ -97,6 +97,11 @@ impl<Q, E> CXQuery<Result<Q, E>> {
     }
 }
 
+//将一个查询包装成一个派生表（derived table），并返回一个新的 SQL 语句
+//query: 原始查询的可变引用，表示要被包装的查询.
+// projection: 一个包含选择项（SelectItem）的向量，定义了新查询的输出列.
+// selection: 一个可选的表达式（Option<Expr>），用于定义新查询的 WHERE 子句.
+// tmp_tab_name: 一个字符串，表示派生表的别名.
 // wrap a query into a derived table
 fn wrap_query(
     query: &mut Query,
@@ -104,8 +109,12 @@ fn wrap_query(
     selection: Option<Expr>,
     tmp_tab_name: &str,
 ) -> Statement {
+    //将原始查询的 with 子句保存到一个变量 with 中.
+    // 将原始查询的 with 字段设置为 None，以便在后续的派生表中使用.
     let with = query.with.clone();
     query.with = None;
+    //如果 tmp_tab_name 是空字符串，则别名设置为 None.
+    // 否则，创建一个 TableAlias 结构体，包含派生表的别名名称和空的列列表.
     let alias = if tmp_tab_name.is_empty() {
         None
     } else {
@@ -117,20 +126,22 @@ fn wrap_query(
             columns: vec![],
         })
     };
+    //创建一个新的 Query 结构体
     Statement::Query(Box::new(Query {
         with,
         locks: vec![],
+        //body: 使用 SetExpr::Select 包装一个新的 Select 语句
         body: Box::new(SetExpr::Select(Box::new(Select {
-            distinct: None,
+            distinct: None,//distinct: 没有 DISTINCT 关键字，设置为 None.
             top: None,
-            projection,
-            from: vec![TableWithJoins {
-                relation: TableFactor::Derived {
+            projection,//projection: 使用传入的 projection 向量.
+            from: vec![TableWithJoins {//from: 包含一个 TableWithJoins 结构体，表示派生表
+                relation: TableFactor::Derived {//relation: 使用 TableFactor::Derived 创建派生表，包含原始查询和别名.
                     lateral: false,
                     subquery: Box::new(query.clone()),
                     alias,
                 },
-                joins: vec![],
+                joins: vec![],//joins: 空的连接列表
             }],
             lateral_views: vec![],
             selection,
@@ -148,6 +159,7 @@ fn wrap_query(
         offset: None,
         fetch: None,
     }))
+    //函数返回一个 Statement 类型的值，表示包装后的查询语句. 这个语句可以被进一步处理或直接用于数据库执行.
 }
 
 trait StatementExt {
@@ -415,28 +427,41 @@ pub fn single_col_partition_query<T: Dialect>(
     debug!("Transformed single column partition query: {}", tsql);
     tsql
 }
-
+// 生成一个用于获取某个列的最小值和最大值的 SQL 查询字符串。这个函数使用了 Rust 的泛型和错误处理机制，并且考虑了不同数据库方言的兼容性。
+//泛型参数：T: Dialect 表示 T 必须实现 Dialect trait，这意味着函数可以处理多种数据库方言.
+// 返回类型：使用 #[throws(ConnectorXError)] 属性宏来指示函数可能会抛出 ConnectorXError 类型的错误.
+// 参数：
+// sql: 原始 SQL 查询字符串.
+// col: 需要获取范围的列名.
+// dialect: 数据库方言的实例，用于生成符合特定数据库语法的查询.
 #[throws(ConnectorXError)]
 pub fn get_partition_range_query<T: Dialect>(sql: &str, col: &str, dialect: &T) -> String {
     trace!("Incoming query: {}", sql);
+    //RANGE_TMP_TAB_NAME: 用于在生成的查询中作为临时表的别名.
+    // table_alias 和 args：分别用于存储表的别名和函数参数. 这些变量在某些情况下会被修改以适应特定的数据库方言.
     const RANGE_TMP_TAB_NAME: &str = "CXTMPTAB_RANGE";
 
     #[allow(unused_mut)]
     let mut table_alias = RANGE_TMP_TAB_NAME;
+    //包含一个 FunctionArg 类型的元素，该元素表示一个未命名的函数参数，其具体表达式是一个复合标识符（Expr::CompoundIdentifier）。
+
     #[allow(unused_mut)]
-    let mut args = vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(
-        Expr::CompoundIdentifier(vec![
-            Ident {
+    let mut args = vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(//FunctionArg::Unnamed 表示这是一个未命名的函数参数. 在 SQL 中，未命名参数通常用于函数调用时不需要显式指定参数名称的情况.FunctionArgExpr::Expr 表示函数参数的具体表达式是一个 SQL 表达式（Expr）
+        Expr::CompoundIdentifier(vec![//Expr::CompoundIdentifier 是一个复合标识符，用于表示一个由多个部分组成的标识符，例如在 SQL 中的表名和列名组合.在这里，它包含两个 Ident 结构体：
+            Ident {//第一个 Ident 表示临时表的别名 RANGE_TMP_TAB_NAME，即 "CXTMPTAB_RANGE".
                 value: RANGE_TMP_TAB_NAME.to_string(),
                 quote_style: None,
             },
-            Ident {
+            Ident {//第二个 Ident 表示列名 col，这是函数的输入参数之一.
                 value: col.to_string(),
                 quote_style: None,
             },
         ]),
     ))];
 
+    //对于 Oracle 数据库，由于其不支持使用 AS 关键字为别名命名，因此有一个特殊的处理分支：
+    // 直接返回一个格式化的 SQL 字符串，该字符串使用 Oracle 兼容的语法来获取列的最小值和最大值.
+    // 注释掉的代码展示了如何修改 table_alias 和 args，但实际并未使用.
     // HACK: Some dialect (e.g. Oracle) does not support "AS" for alias
     #[cfg(feature = "src_oracle")]
     if dialect.type_id() == (OracleDialect {}.type_id()) {
@@ -451,12 +476,18 @@ pub fn get_partition_range_query<T: Dialect>(sql: &str, col: &str, dialect: &T) 
         // }))];
     }
 
+    //使用 Parser::parse_sql 尝试解析输入的 SQL 字符串：
     let tsql = match Parser::parse_sql(dialect, sql) {
         Ok(ast) => {
+            //如果解析成功且只包含一个查询语句，则对该查询进行处理
             if ast.len() != 1 {
                 throw!(ConnectorXError::SqlQueryNotSupported(sql.to_string()));
             }
 
+            //如果原始查询没有 LIMIT 和 OFFSET，则移除 ORDER BY 子句.
+            // 创建一个新的查询，包含两个选择项：一个用于计算列的最小值，另一个用于计算最大值.
+            // 使用 wrap_query 函数将原始查询包装成子查询，并应用新的选择项和别名.
+            // 将生成的查询转换为字符串并返回.
             let mut query = ast[0]
                 .as_query()
                 .ok_or_else(|| ConnectorXError::SqlQueryNotSupported(sql.to_string()))?
@@ -467,6 +498,15 @@ pub fn get_partition_range_query<T: Dialect>(sql: &str, col: &str, dialect: &T) 
                 query.order_by = vec![]; // only omit orderby when there is no limit and offset in the query
             }
             let projection = vec![
+                //最小值选择项：
+                // 使用 SelectItem::UnnamedExpr 创建一个未命名的选择项.
+                // Expr::Function 创建一个函数表达式，用于调用 MIN 函数：
+                // name: 函数名 "min"，使用 ObjectName 包装.
+                // args: 函数参数，使用前面定义的 args 向量.
+                // over: 没有窗口定义，设置为 None.
+                // distinct: 不使用 DISTINCT，设置为 false.
+                // order_by: 没有排序，设置为空向量.
+                // special: 不是特殊函数，设置为 false.
                 SelectItem::UnnamedExpr(Expr::Function(Function {
                     name: ObjectName(vec![Ident {
                         value: "min".to_string(),
@@ -502,6 +542,7 @@ pub fn get_partition_range_query<T: Dialect>(sql: &str, col: &str, dialect: &T) 
         }
     };
 
+    //使用 trace! 和 debug! 宏记录函数的输入和输出信息，以便于调试和追踪.
     debug!("Transformed partition range query: {}", tsql);
     tsql
 }

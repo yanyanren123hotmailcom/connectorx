@@ -140,28 +140,46 @@ fn create_sources2(
     (jvm.java_list("java.lang.String", dbs)?, db_manual)
 }
 
+//主要功能是将一个 SQL 查询重写为多个子查询，以便在不同的数据源上执行。
+// 这个函数使用了 Java 4 Rust (j4rs) 库来与 Java 虚拟机 (JVM) 交互，从而调用 Java 代码来完成 SQL 重写
 #[throws(ConnectorXOutError)]
 pub fn rewrite_sql(
     sql: &str,
     db_map: &HashMap<String, FederatedDataSourceInfo>,
-    j4rs_base: Option<&str>,
-    strategy: &str,
+    j4rs_base: Option<&str>, //可选的 Java 4 Rust 基础路径，用于初始化 JVM.
+    strategy: &str, //用于 SQL 重写的策略字符串.
 ) -> Vec<Plan> {
+
+    //使用 init_jvm 函数初始化 JVM，传入 j4rs_base 作为参数.
+    // 打印调试信息，表示 JVM 初始化成功.
     let jvm = init_jvm(j4rs_base)?;
     debug!("init jvm successfully!");
 
     let sql = InvocationArg::try_from(sql).unwrap();
     let strategy = InvocationArg::try_from(strategy).unwrap();
 
+    //根据环境变量 FED_CONFIG_PATH 是否存在，调用 create_sources2 或 create_sources 函数来创建数据库配置 (db_config) 和手动配置 (db_manual)。
+    // 这两个函数的具体实现未在代码中给出，但它们应该负责将 Rust 中的数据库连接信息转换为 Java 可以理解的格式.
     let (db_config, db_manual) = match env::var("FED_CONFIG_PATH") {
         Ok(_) => create_sources2(&jvm, db_map)?,
         _ => create_sources(&jvm, db_map)?,
     };
+
+    //创建重写器实例：
+    //
+    // 使用 JVM 创建一个 FederatedQueryRewriter 实例，这个实例是 Java 类 ai.dataprep.accio.FederatedQueryRewriter 的对象.
+    // 将 SQL 查询、数据库配置、手动配置和策略作为参数传递给重写器的 rewrite 方法，得到重写后的查询计划 (plan)。
     let rewriter = jvm.create_instance("ai.dataprep.accio.FederatedQueryRewriter", &[])?;
     let db_config = InvocationArg::try_from(db_config).unwrap();
     let db_manual = InvocationArg::try_from(db_manual).unwrap();
     let plan = jvm.invoke(&rewriter, "rewrite", &[sql, db_config, db_manual, strategy])?;
 
+    //获取查询计划信息：
+    //
+    // 从查询计划中获取子查询的数量 (count)。
+    // 打印调试信息，表示重写完成并获取到的子查询数量.
+    // 遍历每个子查询，获取其数据库名称 (db)、别名 (alias_db)、SQL 语句 (rewrite_sql) 和基数 (cardinality)。
+    // 将这些信息封装到 Plan 结构体中，并将其添加到 fed_plan 向量中.
     let count = jvm.invoke(&plan, "getCount", &[])?;
     let count: i32 = jvm.to_rust(count)?;
     debug!("rewrite finished, got {} queries", count);
@@ -195,3 +213,6 @@ pub fn rewrite_sql(
     }
     fed_plan
 }
+//这个函数通过与 JVM 交互，
+// 利用 Java 代码来重写 SQL 查询，生成多个子查询计划。每个子查询计划包含数据库名称、别名、SQL 语句和基数等信息，
+// 这些信息将用于后续的联邦查询执行。通过这种方式，可以实现跨多个数据源的复杂查询操作.

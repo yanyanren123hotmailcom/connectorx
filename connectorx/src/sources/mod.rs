@@ -19,6 +19,8 @@ pub mod postgres;
 pub mod sqlite;
 #[cfg(feature = "src_trino")]
 pub mod trino;
+#[cfg(feature = "src_cockroach")]
+pub mod cockroach;
 
 use crate::data_order::DataOrder;
 use crate::errors::ConnectorXError;

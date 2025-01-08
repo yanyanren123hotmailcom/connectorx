@@ -5,6 +5,11 @@ use crate::sources::postgres::{
     rewrite_tls_args, BinaryProtocol as PgBinaryProtocol, CSVProtocol, CursorProtocol,
     SimpleProtocol,
 };
+#[cfg(feature = "src_cockroach")]
+use crate::sources::cockroach::{
+    CockroachSource,
+};
+
 use crate::{prelude::*, sql::CXQuery};
 use fehler::{throw, throws};
 use log::debug;
@@ -27,6 +32,9 @@ pub fn get_arrow2(
     debug!("Protocol: {}", protocol);
 
     match source_conn.ty {
+        //#[cfg]: 这是一个编译时条件属性，用于根据不同的编译条件来包含或排除代码块。
+        // feature = "src_postgres": 这指定了一个 Cargo 特性。特性是在 Cargo.toml 文件中定义的，
+        // 用于控制代码的可选部分。当你在 Cargo.toml 中定义了一个特性并启用它时，所有带有 #[cfg(feature = "src_postgres")] 属性的代码块都会被编译。
         #[cfg(feature = "src_postgres")]
         SourceType::Postgres => {
             let (config, tls) = rewrite_tls_args(&source_conn.conn)?;
@@ -137,6 +145,126 @@ pub fn get_arrow2(
                         _,
                         _,
                         PostgresArrow2Transport<SimpleProtocol, NoTls>,
+                    >::new(
+                        sb, &mut destination, queries, origin_query
+                    );
+                    debug!("Running dispatcher");
+                    dispatcher.run()?;
+                }
+
+                _ => unimplemented!("{} protocol not supported", protocol),
+            }
+        }
+        #[cfg(feature = "src_cockroach")]
+        SourceType::Cockroach=> {
+            let (config, tls) = rewrite_tls_args(&source_conn.conn)?;
+            match (protocol, tls) {
+                ("csv", Some(tls_conn)) => {
+                    let sb = CockroachSource::<CSVProtocol, MakeTlsConnector>::new(
+                        config,
+                        tls_conn,
+                        queries.len(),
+                    )?;
+                    let dispatcher = Dispatcher::<
+                        _,
+                        _,
+                        CockroachArrow2Transport<CSVProtocol, MakeTlsConnector>,
+                    >::new(
+                        sb, &mut destination, queries, origin_query
+                    );
+                    dispatcher.run()?;
+                }
+                ("csv", None) => {
+                    let sb =
+                        CockroachSource::<CSVProtocol, NoTls>::new(config, NoTls, queries.len())?;
+                    let dispatcher =
+                        Dispatcher::<_, _, CockroachArrow2Transport<CSVProtocol, NoTls>>::new(
+                            sb,
+                            &mut destination,
+                            queries,
+                            origin_query,
+                        );
+                    dispatcher.run()?;
+                }
+                ("binary", Some(tls_conn)) => {
+                    let sb = CockroachSource::<PgBinaryProtocol, MakeTlsConnector>::new(
+                        config,
+                        tls_conn,
+                        queries.len(),
+                    )?;
+                    let dispatcher =
+                        Dispatcher::<
+                            _,
+                            _,
+                            CockroachArrow2Transport<PgBinaryProtocol, MakeTlsConnector>,
+                        >::new(sb, &mut destination, queries, origin_query);
+                    dispatcher.run()?;
+                }
+                ("binary", None) => {
+                    let sb = CockroachSource::<PgBinaryProtocol, NoTls>::new(
+                        config,
+                        NoTls,
+                        queries.len(),
+                    )?;
+                    let dispatcher = Dispatcher::<
+                        _,
+                        _,
+                        CockroachArrow2Transport<PgBinaryProtocol, NoTls>,
+                    >::new(
+                        sb, &mut destination, queries, origin_query
+                    );
+                    dispatcher.run()?;
+                }
+                ("cursor", Some(tls_conn)) => {
+                    let sb = CockroachSource::<CursorProtocol, MakeTlsConnector>::new(
+                        config,
+                        tls_conn,
+                        queries.len(),
+                    )?;
+                    let dispatcher = Dispatcher::<
+                        _,
+                        _,
+                        CockroachArrow2Transport<CursorProtocol, MakeTlsConnector>,
+                    >::new(
+                        sb, &mut destination, queries, origin_query
+                    );
+                    dispatcher.run()?;
+                }
+                ("cursor", None) => {
+                    let sb =
+                        CockroachSource::<CursorProtocol, NoTls>::new(config, NoTls, queries.len())?;
+                    let dispatcher = Dispatcher::<
+                        _,
+                        _,
+                        CockroachArrow2Transport<CursorProtocol, NoTls>,
+                    >::new(
+                        sb, &mut destination, queries, origin_query
+                    );
+                    dispatcher.run()?;
+                }
+                ("simple", Some(tls_conn)) => {
+                    let sb = CockroachSource::<SimpleProtocol, MakeTlsConnector>::new(
+                        config,
+                        tls_conn,
+                        queries.len(),
+                    )?;
+                    let dispatcher = Dispatcher::<
+                        _,
+                        _,
+                        CockroachArrow2Transport<SimpleProtocol, MakeTlsConnector>,
+                    >::new(
+                        sb, &mut destination, queries, origin_query
+                    );
+                    debug!("Running dispatcher");
+                    dispatcher.run()?;
+                }
+                ("simple", None) => {
+                    let sb =
+                        CockroachSource::<SimpleProtocol, NoTls>::new(config, NoTls, queries.len())?;
+                    let dispatcher = Dispatcher::<
+                        _,
+                        _,
+                        CockroachArrow2Transport<SimpleProtocol, NoTls>,
                     >::new(
                         sb, &mut destination, queries, origin_query
                     );
